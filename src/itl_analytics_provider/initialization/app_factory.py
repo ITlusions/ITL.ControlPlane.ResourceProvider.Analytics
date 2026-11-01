@@ -57,7 +57,7 @@ def create_app(server, engine, provider) -> FastAPI:
 
     # SDK standard routes
     setup_generic_routes(app)
-    setup_observability_routes(app)
+    setup_observability_routes(app, engine)
 
     # Provider-specific routes
     app.include_router(setup_notebooks_routes(app, engine, provider), prefix="/api/v1")
