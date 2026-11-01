@@ -6,7 +6,7 @@ Extends SDK BaseProviderServer with analytics-specific configuration
 
 import os
 import logging
-from itl_controlplane_sdk.providers import BaseProviderServer
+from itl_controlplane_sdk.fastapi import BaseProviderServer
 from itl_controlplane_sdk.persistence import SQLAlchemyStorageEngine
 from ..analytics import AnalyticsProvider
 from .app_factory import create_app
