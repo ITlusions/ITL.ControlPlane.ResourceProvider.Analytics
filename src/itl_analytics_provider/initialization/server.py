@@ -32,10 +32,9 @@ class AnalyticsProviderServer(BaseProviderServer):
         
         logger.info("Initializing Analytics Provider Server")
         
-        # Create storage engine
-        self.engine = SQLAlchemyStorageEngine(
-            database_url=settings.database_url
-        )
+        # Create storage engine — configured entirely via env vars
+        # (DATABASE_HOST/PORT/NAME/USER/PASSWORD), takes no constructor args
+        self.engine = SQLAlchemyStorageEngine()
         
         # Create provider instance
         self.provider = AnalyticsProvider(engine=self.engine)
