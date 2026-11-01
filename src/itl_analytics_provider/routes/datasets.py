@@ -1,135 +1,195 @@
 """
-FastAPI routes for Dataset resources
+Routes for Dataset resources
+
+Provides dataset management endpoints following Core provider pattern.
 """
 
-import logging
-from uuid import UUID
 from fastapi import APIRouter, HTTPException, status
+from structlog import get_logger
 
-from itl_analytics_provider.models.notebook import DatasetRequest, DatasetResponse
-from itl_analytics_provider.services.dataset_service import DatasetService
-from itl_analytics_provider.repositories.dataset_repo import DatasetRepository
-from itl_analytics_provider.core.database import get_async_session
+from ..models import DatasetRequest, DatasetResponse
 
-logger = logging.getLogger(__name__)
-
-router = APIRouter(tags=["Datasets"])
+logger = get_logger()
 
 
-@router.post(
-    "/subscriptions/{subscription_id}/resourceGroups/{resource_group}/providers/ITL.Analytics/datasets",
-    response_model=DatasetResponse,
-    status_code=status.HTTP_201_CREATED,
-)
-async def register_dataset(
-    subscription_id: str,
-    resource_group: str,
-    request: DatasetRequest,
-):
-    """Register new dataset
-
-    TODO (Phase 2):
-        - Analyze schema
-        - Calculate statistics
-        - Setup lineage tracking
+def setup_datasets_routes(app, engine, provider) -> APIRouter:
     """
-    logger.info(
-        f"POST /datasets: name={request.name}",
-        extra={"subscription": subscription_id, "resource_group": resource_group},
+    Setup dataset routes
+
+    Endpoints:
+    - POST   /datasets                - Create dataset
+    - GET    /datasets                - List datasets
+    - GET    /datasets/{name}         - Get dataset
+    - DELETE /datasets/{name}         - Delete dataset
+
+    Uses provider handler methods (Core provider pattern):
+    - provider._create_dataset()
+    - provider._get_dataset()
+    - provider._list_datasets()
+    - provider._delete_dataset()
+    """
+    router = APIRouter(tags=["datasets"])
+
+    @router.post(
+        "/subscriptions/{subscription_id}/resourceGroups/{resource_group}/providers/ITL.Analytics/datasets",
+        response_model=DatasetResponse,
+        status_code=status.HTTP_201_CREATED,
     )
+    async def register_dataset(
+        subscription_id: str, resource_group: str, request: DatasetRequest
+    ):
+        """Register dataset"""
+        logger.info(
+            "register_dataset",
+            subscription_id=subscription_id,
+            resource_group=resource_group,
+            name=request.name,
+        )
 
-    try:
-        async with get_async_session() as session:
-            repo = DatasetRepository(session)
-            service = DatasetService(repo)
+        try:
+            owner_id = "default-user"
 
-            dataset = await service.register_dataset(
+            dataset = await provider._create_dataset(
                 subscription_id=subscription_id,
                 resource_group=resource_group,
                 name=request.name,
                 location=request.location,
-                data_location=request.properties.location,
+                properties=request.properties.dict(),
+                owner_id=owner_id,
             )
 
             return DatasetResponse(
                 id=dataset.id,
                 name=dataset.name,
-                type="ITL.Analytics/datasets",
                 location=dataset.location,
-                properties={
-                    "location": dataset.data_location,
-                    "schema": dataset.schema or {},
-                },
+                status=dataset.status,
                 created_at=dataset.created_at,
+                updated_at=dataset.updated_at,
+                owner_id=dataset.owner_id,
+                properties={
+                    "datasetType": dataset.dataset_type,
+                    "storageAccount": dataset.storage_account,
+                    "storagePath": dataset.storage_path,
+                },
             )
 
-    except Exception as e:
-        logger.error(f"Failed to register dataset: {str(e)}")
-        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e))
+        except Exception as e:
+            logger.error("register_dataset_error", error=str(e))
+            raise HTTPException(status_code=500, detail=str(e))
 
-
-@router.get(
-    "/subscriptions/{subscription_id}/resourceGroups/{resource_group}/providers/ITL.Analytics/datasets"
-)
-async def list_datasets(subscription_id: str, resource_group: str):
-    """List datasets in resource group"""
-    logger.info(
-        f"GET /datasets",
-        extra={"subscription": subscription_id, "resource_group": resource_group},
+    @router.get(
+        "/subscriptions/{subscription_id}/resourceGroups/{resource_group}/providers/ITL.Analytics/datasets",
+        status_code=status.HTTP_200_OK,
     )
+    async def list_datasets(subscription_id: str, resource_group: str):
+        """List datasets in resource group"""
+        logger.info(
+            "list_datasets",
+            subscription_id=subscription_id,
+            resource_group=resource_group,
+        )
 
-    try:
-        async with get_async_session() as session:
-            repo = DatasetRepository(session)
-            service = DatasetService(repo)
-            datasets = await service.list_datasets(subscription_id, resource_group)
+        try:
+            datasets = await provider._list_datasets(subscription_id, resource_group)
 
             return {
                 "value": [
                     DatasetResponse(
                         id=d.id,
                         name=d.name,
-                        type="ITL.Analytics/datasets",
                         location=d.location,
-                        properties={
-                            "location": d.data_location,
-                            "schema": d.schema or {},
-                        },
+                        status=d.status,
                         created_at=d.created_at,
+                        updated_at=d.updated_at,
+                        owner_id=d.owner_id,
+                        properties={
+                            "datasetType": d.dataset_type,
+                            "storageAccount": d.storage_account,
+                            "storagePath": d.storage_path,
+                        },
                     )
                     for d in datasets
                 ]
             }
 
-    except Exception as e:
-        logger.error(f"Failed to list datasets: {str(e)}")
-        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e))
+        except Exception as e:
+            logger.error("list_datasets_error", error=str(e))
+            raise HTTPException(status_code=500, detail=str(e))
 
-
-@router.delete(
-    "/subscriptions/{subscription_id}/resourceGroups/{resource_group}/providers/ITL.Analytics/datasets/{dataset_id}",
-    status_code=status.HTTP_204_NO_CONTENT,
-)
-async def delete_dataset(subscription_id: str, resource_group: str, dataset_id: UUID):
-    """Delete dataset"""
-    logger.info(
-        f"DELETE /datasets/{dataset_id}",
-        extra={"subscription": subscription_id, "resource_group": resource_group},
+    @router.get(
+        "/subscriptions/{subscription_id}/resourceGroups/{resource_group}/providers/ITL.Analytics/datasets/{dataset_name}",
+        response_model=DatasetResponse,
+        status_code=status.HTTP_200_OK,
     )
+    async def get_dataset(
+        subscription_id: str, resource_group: str, dataset_name: str
+    ):
+        """Get dataset details"""
+        logger.info(
+            "get_dataset",
+            subscription_id=subscription_id,
+            resource_group=resource_group,
+            dataset_name=dataset_name,
+        )
 
-    try:
-        async with get_async_session() as session:
-            repo = DatasetRepository(session)
-            service = DatasetService(repo)
-            result = await service.delete_dataset(dataset_id)
+        try:
+            dataset = await provider._get_dataset(
+                subscription_id, resource_group, dataset_name
+            )
+
+            if not dataset:
+                raise HTTPException(status_code=404, detail="Dataset not found")
+
+            return DatasetResponse(
+                id=dataset.id,
+                name=dataset.name,
+                location=dataset.location,
+                status=dataset.status,
+                created_at=dataset.created_at,
+                updated_at=dataset.updated_at,
+                owner_id=dataset.owner_id,
+                properties={
+                    "datasetType": dataset.dataset_type,
+                    "storageAccount": dataset.storage_account,
+                    "storagePath": dataset.storage_path,
+                },
+            )
+
+        except HTTPException:
+            raise
+        except Exception as e:
+            logger.error("get_dataset_error", error=str(e))
+            raise HTTPException(status_code=500, detail=str(e))
+
+    @router.delete(
+        "/subscriptions/{subscription_id}/resourceGroups/{resource_group}/providers/ITL.Analytics/datasets/{dataset_name}",
+        status_code=status.HTTP_204_NO_CONTENT,
+    )
+    async def delete_dataset(
+        subscription_id: str, resource_group: str, dataset_name: str
+    ):
+        """Delete dataset"""
+        logger.info(
+            "delete_dataset",
+            subscription_id=subscription_id,
+            resource_group=resource_group,
+            dataset_name=dataset_name,
+        )
+
+        try:
+            result = await provider._delete_dataset(
+                subscription_id, resource_group, dataset_name
+            )
 
             if not result:
-                raise HTTPException(status_code=status.HTTP_404_NOT_FOUND)
+                raise HTTPException(status_code=404, detail="Dataset not found")
 
             return None
 
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error(f"Failed to delete dataset: {str(e)}")
-        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e))
+        except HTTPException:
+            raise
+        except Exception as e:
+            logger.error("delete_dataset_error", error=str(e))
+            raise HTTPException(status_code=500, detail=str(e))
+
+    return router

@@ -1,9 +1,12 @@
 """
 Models package for Analytics resources
+
+Re-exports from SDK - see itl_controlplane_sdk.analytics
 """
 
-# ORM Models
-from .orm import (
+# Import from SDK
+from itl_controlplane_sdk.analytics import (
+    # ORM Models
     Notebook,
     NotebookStatus,
     SparkCluster,
@@ -11,10 +14,7 @@ from .orm import (
     Model,
     Dataset,
     InferenceEndpoint,
-)
-
-# Pydantic Models
-from .notebook import (
+    # Pydantic Models
     NotebookPropertiesRequest,
     NotebookRequest,
     NotebookProperties,

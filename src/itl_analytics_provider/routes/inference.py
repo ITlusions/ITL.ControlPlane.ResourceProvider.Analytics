@@ -1,143 +1,197 @@
 """
-FastAPI routes for Inference Endpoint resources
+Routes for Inference Endpoint resources
+
+Provides inference endpoint management endpoints following Core provider pattern.
 """
 
-import logging
-from uuid import UUID
 from fastapi import APIRouter, HTTPException, status
+from structlog import get_logger
 
-from itl_analytics_provider.models.notebook import InferenceEndpointRequest, InferenceEndpointResponse
-from itl_analytics_provider.services.inference_service import InferenceEndpointService
-from itl_analytics_provider.repositories.inference_repo import InferenceEndpointRepository
-from itl_analytics_provider.core.database import get_async_session
+from ..models import InferenceEndpointRequest, InferenceEndpointResponse
 
-logger = logging.getLogger(__name__)
-
-router = APIRouter(tags=["Inference Endpoints"])
+logger = get_logger()
 
 
-@router.post(
-    "/subscriptions/{subscription_id}/resourceGroups/{resource_group}/providers/ITL.Analytics/inferenceEndpoints",
-    response_model=InferenceEndpointResponse,
-    status_code=status.HTTP_201_CREATED,
-)
-async def create_inference_endpoint(
-    subscription_id: str,
-    resource_group: str,
-    request: InferenceEndpointRequest,
-):
-    """Deploy model as inference endpoint
-
-    TODO (Phase 3):
-        - Create Kubernetes deployment
-        - Setup REST service
-        - Configure auto-scaling
-        - Return endpoint URL
+def setup_inference_endpoints_routes(app, engine, provider) -> APIRouter:
     """
-    logger.info(
-        f"POST /inferenceEndpoints: name={request.name}",
-        extra={"subscription": subscription_id, "resource_group": resource_group},
+    Setup inference endpoint routes
+
+    Endpoints:
+    - POST   /inferenceEndpoints           - Create endpoint
+    - GET    /inferenceEndpoints           - List endpoints
+    - GET    /inferenceEndpoints/{name}    - Get endpoint
+    - DELETE /inferenceEndpoints/{name}    - Delete endpoint
+
+    Uses provider handler methods (Core provider pattern):
+    - provider._create_inference_endpoint()
+    - provider._get_inference_endpoint()
+    - provider._list_inference_endpoints()
+    - provider._delete_inference_endpoint()
+    """
+    router = APIRouter(tags=["inferenceEndpoints"])
+
+    @router.post(
+        "/subscriptions/{subscription_id}/resourceGroups/{resource_group}/providers/ITL.Analytics/inferenceEndpoints",
+        response_model=InferenceEndpointResponse,
+        status_code=status.HTTP_201_CREATED,
     )
+    async def create_inference_endpoint(
+        subscription_id: str, resource_group: str, request: InferenceEndpointRequest
+    ):
+        """Create inference endpoint"""
+        logger.info(
+            "create_inference_endpoint",
+            subscription_id=subscription_id,
+            resource_group=resource_group,
+            name=request.name,
+        )
 
-    try:
-        async with get_async_session() as session:
-            repo = InferenceEndpointRepository(session)
-            service = InferenceEndpointService(repo)
+        try:
+            owner_id = "default-user"
 
-            endpoint = await service.create_endpoint(
+            endpoint = await provider._create_inference_endpoint(
                 subscription_id=subscription_id,
                 resource_group=resource_group,
                 name=request.name,
                 location=request.location,
-                model_id=request.properties.model_id,
-                replica_count=request.properties.replica_count,
+                properties=request.properties.dict(),
+                owner_id=owner_id,
             )
 
             return InferenceEndpointResponse(
                 id=endpoint.id,
                 name=endpoint.name,
-                type="ITL.Analytics/inferenceEndpoints",
+                location=endpoint.location,
                 status=endpoint.status,
-                properties={
-                    "model_id": endpoint.model_id,
-                    "replica_count": endpoint.replica_count,
-                    "cpu_per_replica": endpoint.cpu_per_replica,
-                    "memory_gb_per_replica": endpoint.memory_gb_per_replica,
-                },
                 created_at=endpoint.created_at,
-                url=endpoint.url,
+                updated_at=endpoint.updated_at,
+                owner_id=endpoint.owner_id,
+                properties={
+                    "modelId": endpoint.model_id,
+                    "computeSku": endpoint.compute_sku,
+                    "instanceCount": endpoint.instance_count,
+                },
             )
 
-    except Exception as e:
-        logger.error(f"Failed to create endpoint: {str(e)}")
-        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e))
+        except Exception as e:
+            logger.error("create_inference_endpoint_error", error=str(e))
+            raise HTTPException(status_code=500, detail=str(e))
 
-
-@router.get(
-    "/subscriptions/{subscription_id}/resourceGroups/{resource_group}/providers/ITL.Analytics/inferenceEndpoints"
-)
-async def list_inference_endpoints(subscription_id: str, resource_group: str):
-    """List inference endpoints in resource group"""
-    logger.info(
-        f"GET /inferenceEndpoints",
-        extra={"subscription": subscription_id, "resource_group": resource_group},
+    @router.get(
+        "/subscriptions/{subscription_id}/resourceGroups/{resource_group}/providers/ITL.Analytics/inferenceEndpoints",
+        status_code=status.HTTP_200_OK,
     )
+    async def list_inference_endpoints(subscription_id: str, resource_group: str):
+        """List inference endpoints in resource group"""
+        logger.info(
+            "list_inference_endpoints",
+            subscription_id=subscription_id,
+            resource_group=resource_group,
+        )
 
-    try:
-        async with get_async_session() as session:
-            repo = InferenceEndpointRepository(session)
-            service = InferenceEndpointService(repo)
-            endpoints = await service.list_endpoints(subscription_id, resource_group)
+        try:
+            endpoints = await provider._list_inference_endpoints(
+                subscription_id, resource_group
+            )
 
             return {
                 "value": [
                     InferenceEndpointResponse(
                         id=e.id,
                         name=e.name,
-                        type="ITL.Analytics/inferenceEndpoints",
+                        location=e.location,
                         status=e.status,
-                        properties={
-                            "model_id": e.model_id,
-                            "replica_count": e.replica_count,
-                        },
                         created_at=e.created_at,
-                        url=e.url,
+                        updated_at=e.updated_at,
+                        owner_id=e.owner_id,
+                        properties={
+                            "modelId": e.model_id,
+                            "computeSku": e.compute_sku,
+                            "instanceCount": e.instance_count,
+                        },
                     )
                     for e in endpoints
                 ]
             }
 
-    except Exception as e:
-        logger.error(f"Failed to list endpoints: {str(e)}")
-        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e))
+        except Exception as e:
+            logger.error("list_inference_endpoints_error", error=str(e))
+            raise HTTPException(status_code=500, detail=str(e))
 
-
-@router.delete(
-    "/subscriptions/{subscription_id}/resourceGroups/{resource_group}/providers/ITL.Analytics/inferenceEndpoints/{endpoint_id}",
-    status_code=status.HTTP_204_NO_CONTENT,
-)
-async def delete_inference_endpoint(
-    subscription_id: str, resource_group: str, endpoint_id: UUID
-):
-    """Delete inference endpoint"""
-    logger.info(
-        f"DELETE /inferenceEndpoints/{endpoint_id}",
-        extra={"subscription": subscription_id, "resource_group": resource_group},
+    @router.get(
+        "/subscriptions/{subscription_id}/resourceGroups/{resource_group}/providers/ITL.Analytics/inferenceEndpoints/{endpoint_name}",
+        response_model=InferenceEndpointResponse,
+        status_code=status.HTTP_200_OK,
     )
+    async def get_inference_endpoint(
+        subscription_id: str, resource_group: str, endpoint_name: str
+    ):
+        """Get inference endpoint details"""
+        logger.info(
+            "get_inference_endpoint",
+            subscription_id=subscription_id,
+            resource_group=resource_group,
+            endpoint_name=endpoint_name,
+        )
 
-    try:
-        async with get_async_session() as session:
-            repo = InferenceEndpointRepository(session)
-            service = InferenceEndpointService(repo)
-            result = await service.delete_endpoint(endpoint_id)
+        try:
+            endpoint = await provider._get_inference_endpoint(
+                subscription_id, resource_group, endpoint_name
+            )
+
+            if not endpoint:
+                raise HTTPException(status_code=404, detail="Endpoint not found")
+
+            return InferenceEndpointResponse(
+                id=endpoint.id,
+                name=endpoint.name,
+                location=endpoint.location,
+                status=endpoint.status,
+                created_at=endpoint.created_at,
+                updated_at=endpoint.updated_at,
+                owner_id=endpoint.owner_id,
+                properties={
+                    "modelId": endpoint.model_id,
+                    "computeSku": endpoint.compute_sku,
+                    "instanceCount": endpoint.instance_count,
+                },
+            )
+
+        except HTTPException:
+            raise
+        except Exception as e:
+            logger.error("get_inference_endpoint_error", error=str(e))
+            raise HTTPException(status_code=500, detail=str(e))
+
+    @router.delete(
+        "/subscriptions/{subscription_id}/resourceGroups/{resource_group}/providers/ITL.Analytics/inferenceEndpoints/{endpoint_name}",
+        status_code=status.HTTP_204_NO_CONTENT,
+    )
+    async def delete_inference_endpoint(
+        subscription_id: str, resource_group: str, endpoint_name: str
+    ):
+        """Delete inference endpoint"""
+        logger.info(
+            "delete_inference_endpoint",
+            subscription_id=subscription_id,
+            resource_group=resource_group,
+            endpoint_name=endpoint_name,
+        )
+
+        try:
+            result = await provider._delete_inference_endpoint(
+                subscription_id, resource_group, endpoint_name
+            )
 
             if not result:
-                raise HTTPException(status_code=status.HTTP_404_NOT_FOUND)
+                raise HTTPException(status_code=404, detail="Endpoint not found")
 
             return None
 
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error(f"Failed to delete endpoint: {str(e)}")
-        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e))
+        except HTTPException:
+            raise
+        except Exception as e:
+            logger.error("delete_inference_endpoint_error", error=str(e))
+            raise HTTPException(status_code=500, detail=str(e))
+
+    return router

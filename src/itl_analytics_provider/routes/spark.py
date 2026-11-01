@@ -1,190 +1,196 @@
 """
-FastAPI routes for Spark Cluster resources
+Routes for Spark Cluster resources
+
+Provides Spark cluster management endpoints following Core provider pattern.
 """
 
-import logging
-from uuid import UUID
 from fastapi import APIRouter, HTTPException, status
+from structlog import get_logger
 
-from itl_analytics_provider.models.notebook import SparkClusterRequest, SparkClusterResponse
-from itl_analytics_provider.services.spark_service import SparkClusterService
-from itl_analytics_provider.repositories.spark_repo import SparkClusterRepository
-from itl_analytics_provider.core.database import get_async_session
+from ..models import SparkClusterRequest, SparkClusterResponse
 
-logger = logging.getLogger(__name__)
-
-router = APIRouter(tags=["Spark Clusters"])
+logger = get_logger()
 
 
-@router.post(
-    "/subscriptions/{subscription_id}/resourceGroups/{resource_group}/providers/ITL.Analytics/sparkClusters",
-    response_model=SparkClusterResponse,
-    status_code=status.HTTP_201_CREATED,
-)
-async def create_spark_cluster(
-    subscription_id: str,
-    resource_group: str,
-    request: SparkClusterRequest,
-):
-    """Create new Spark cluster
-
-    TODO:
-        - Integrate with Container Provider
-        - Wait for pods to be ready
-        - Setup master/worker networking
-        - Return cluster with status Running
+def setup_spark_clusters_routes(app, engine, provider) -> APIRouter:
     """
-    logger.info(
-        f"POST /sparkClusters: name={request.name}",
-        extra={"subscription": subscription_id, "resource_group": resource_group},
+    Setup Spark cluster routes
+
+    Endpoints:
+    - POST   /sparkClusters           - Create cluster
+    - GET    /sparkClusters           - List clusters
+    - GET    /sparkClusters/{name}    - Get cluster
+    - DELETE /sparkClusters/{name}    - Delete cluster
+
+    Uses provider handler methods (Core provider pattern):
+    - provider._create_spark_cluster()
+    - provider._get_spark_cluster()
+    - provider._list_spark_clusters()
+    - provider._delete_spark_cluster()
+    """
+    router = APIRouter(tags=["sparkClusters"])
+
+    @router.post(
+        "/subscriptions/{subscription_id}/resourceGroups/{resource_group}/providers/ITL.Analytics/sparkClusters",
+        response_model=SparkClusterResponse,
+        status_code=status.HTTP_201_CREATED,
     )
+    async def create_spark_cluster(
+        subscription_id: str, resource_group: str, request: SparkClusterRequest
+    ):
+        """Create Spark cluster"""
+        logger.info(
+            "create_spark_cluster",
+            subscription_id=subscription_id,
+            resource_group=resource_group,
+            name=request.name,
+        )
 
-    try:
-        async with get_async_session() as session:
-            repo = SparkClusterRepository(session)
-            service = SparkClusterService(repo)
+        try:
+            owner_id = "default-user"
 
-            cluster = await service.create_cluster(
+            cluster = await provider._create_spark_cluster(
                 subscription_id=subscription_id,
                 resource_group=resource_group,
                 name=request.name,
                 location=request.location,
                 properties=request.properties.dict(),
-                owner_id="default-user",  # TODO: Get from auth context
+                owner_id=owner_id,
             )
 
             return SparkClusterResponse(
                 id=cluster.id,
                 name=cluster.name,
-                type="ITL.Analytics/sparkClusters",
                 location=cluster.location,
                 status=cluster.status,
-                properties={
-                    "driver_cpu": cluster.driver_cpu,
-                    "driver_memory_gb": cluster.driver_memory_gb,
-                    "worker_count": cluster.worker_count,
-                    "worker_cpu": cluster.worker_cpu,
-                    "worker_memory_gb": cluster.worker_memory_gb,
-                    "worker_gpus": cluster.worker_gpus,
-                },
                 created_at=cluster.created_at,
                 updated_at=cluster.updated_at,
+                owner_id=cluster.owner_id,
+                properties={
+                    "clusterSize": cluster.cluster_size,
+                    "sparkVersion": cluster.spark_version,
+                    "computeSku": cluster.compute_sku,
+                },
             )
 
-    except Exception as e:
-        logger.error(f"Failed to create cluster: {str(e)}")
-        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e))
+        except Exception as e:
+            logger.error("create_spark_cluster_error", error=str(e))
+            raise HTTPException(status_code=500, detail=str(e))
 
-
-@router.get(
-    "/subscriptions/{subscription_id}/resourceGroups/{resource_group}/providers/ITL.Analytics/sparkClusters"
-)
-async def list_spark_clusters(subscription_id: str, resource_group: str):
-    """List Spark clusters in resource group"""
-    logger.info(
-        f"GET /sparkClusters",
-        extra={"subscription": subscription_id, "resource_group": resource_group},
+    @router.get(
+        "/subscriptions/{subscription_id}/resourceGroups/{resource_group}/providers/ITL.Analytics/sparkClusters",
+        status_code=status.HTTP_200_OK,
     )
+    async def list_spark_clusters(subscription_id: str, resource_group: str):
+        """List Spark clusters in resource group"""
+        logger.info(
+            "list_spark_clusters",
+            subscription_id=subscription_id,
+            resource_group=resource_group,
+        )
 
-    try:
-        async with get_async_session() as session:
-            repo = SparkClusterRepository(session)
-            service = SparkClusterService(repo)
-            clusters = await service.list_clusters(subscription_id, resource_group)
+        try:
+            clusters = await provider._list_spark_clusters(subscription_id, resource_group)
 
             return {
                 "value": [
                     SparkClusterResponse(
                         id=c.id,
                         name=c.name,
-                        type="ITL.Analytics/sparkClusters",
                         location=c.location,
                         status=c.status,
-                        properties={
-                            "driver_cpu": c.driver_cpu,
-                            "driver_memory_gb": c.driver_memory_gb,
-                            "worker_count": c.worker_count,
-                        },
                         created_at=c.created_at,
                         updated_at=c.updated_at,
+                        owner_id=c.owner_id,
+                        properties={
+                            "clusterSize": c.cluster_size,
+                            "sparkVersion": c.spark_version,
+                            "computeSku": c.compute_sku,
+                        },
                     )
                     for c in clusters
                 ]
             }
 
-    except Exception as e:
-        logger.error(f"Failed to list clusters: {str(e)}")
-        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e))
+        except Exception as e:
+            logger.error("list_spark_clusters_error", error=str(e))
+            raise HTTPException(status_code=500, detail=str(e))
 
 
-@router.get(
-    "/subscriptions/{subscription_id}/resourceGroups/{resource_group}/providers/ITL.Analytics/sparkClusters/{cluster_id}"
-)
-async def get_spark_cluster(
-    subscription_id: str, resource_group: str, cluster_id: UUID
-):
-    """Get specific Spark cluster"""
-    logger.info(
-        f"GET /sparkClusters/{cluster_id}",
-        extra={"subscription": subscription_id, "resource_group": resource_group},
+    @router.get(
+        "/subscriptions/{subscription_id}/resourceGroups/{resource_group}/providers/ITL.Analytics/sparkClusters/{cluster_name}",
+        response_model=SparkClusterResponse,
+        status_code=status.HTTP_200_OK,
     )
+    async def get_spark_cluster(
+        subscription_id: str, resource_group: str, cluster_name: str
+    ):
+        """Get Spark cluster details"""
+        logger.info(
+            "get_spark_cluster",
+            subscription_id=subscription_id,
+            resource_group=resource_group,
+            cluster_name=cluster_name,
+        )
 
-    try:
-        async with get_async_session() as session:
-            repo = SparkClusterRepository(session)
-            cluster = await repo.get_by_id(cluster_id)
+        try:
+            cluster = await provider._get_spark_cluster(
+                subscription_id, resource_group, cluster_name
+            )
 
             if not cluster:
-                raise HTTPException(status_code=status.HTTP_404_NOT_FOUND)
+                raise HTTPException(status_code=404, detail="Cluster not found")
 
             return SparkClusterResponse(
                 id=cluster.id,
                 name=cluster.name,
-                type="ITL.Analytics/sparkClusters",
                 location=cluster.location,
                 status=cluster.status,
-                properties={
-                    "driver_cpu": cluster.driver_cpu,
-                    "driver_memory_gb": cluster.driver_memory_gb,
-                    "worker_count": cluster.worker_count,
-                },
                 created_at=cluster.created_at,
                 updated_at=cluster.updated_at,
+                owner_id=cluster.owner_id,
+                properties={
+                    "clusterSize": cluster.cluster_size,
+                    "sparkVersion": cluster.spark_version,
+                    "computeSku": cluster.compute_sku,
+                },
             )
 
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error(f"Failed to get cluster: {str(e)}")
-        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e))
+        except HTTPException:
+            raise
+        except Exception as e:
+            logger.error("get_spark_cluster_error", error=str(e))
+            raise HTTPException(status_code=500, detail=str(e))
 
-
-@router.delete(
-    "/subscriptions/{subscription_id}/resourceGroups/{resource_group}/providers/ITL.Analytics/sparkClusters/{cluster_id}",
-    status_code=status.HTTP_204_NO_CONTENT,
-)
-async def delete_spark_cluster(
-    subscription_id: str, resource_group: str, cluster_id: UUID
-):
-    """Delete Spark cluster"""
-    logger.info(
-        f"DELETE /sparkClusters/{cluster_id}",
-        extra={"subscription": subscription_id, "resource_group": resource_group},
+    @router.delete(
+        "/subscriptions/{subscription_id}/resourceGroups/{resource_group}/providers/ITL.Analytics/sparkClusters/{cluster_name}",
+        status_code=status.HTTP_204_NO_CONTENT,
     )
+    async def delete_spark_cluster(
+        subscription_id: str, resource_group: str, cluster_name: str
+    ):
+        """Delete Spark cluster"""
+        logger.info(
+            "delete_spark_cluster",
+            subscription_id=subscription_id,
+            resource_group=resource_group,
+            cluster_name=cluster_name,
+        )
 
-    try:
-        async with get_async_session() as session:
-            repo = SparkClusterRepository(session)
-            service = SparkClusterService(repo)
-            result = await service.delete_cluster(cluster_id)
+        try:
+            result = await provider._delete_spark_cluster(
+                subscription_id, resource_group, cluster_name
+            )
 
             if not result:
-                raise HTTPException(status_code=status.HTTP_404_NOT_FOUND)
+                raise HTTPException(status_code=404, detail="Cluster not found")
 
             return None
 
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error(f"Failed to delete cluster: {str(e)}")
-        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e))
+        except HTTPException:
+            raise
+        except Exception as e:
+            logger.error("delete_spark_cluster_error", error=str(e))
+            raise HTTPException(status_code=500, detail=str(e))
+
+    return router

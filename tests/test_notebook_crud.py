@@ -12,7 +12,6 @@ from sqlalchemy.orm import sessionmaker
 
 from itl_analytics_provider.models.orm import Base, Notebook, NotebookStatus
 from itl_analytics_provider.repositories.notebook_repo import NotebookRepository
-from itl_analytics_provider.services.notebook_service import NotebookService
 
 
 @pytest.fixture
@@ -50,7 +49,6 @@ async def test_create_notebook(test_db):
     
     async with test_db() as session:
         repo = NotebookRepository(session)
-        service = NotebookService(repo)
         
         # This will fail trying to reach Container Provider, which is expected
         # In a real test, we'd mock the Container and MinIO clients
