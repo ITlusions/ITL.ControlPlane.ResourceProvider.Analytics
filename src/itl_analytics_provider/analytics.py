@@ -12,10 +12,27 @@ Manages analytics resources:
 
 from typing import List
 from itl_controlplane_sdk.providers import ResourceProvider
-from itl_controlplane_sdk.persistence import StorageEngine
+from itl_controlplane_sdk.persistence import SQLAlchemyStorageEngine
+
+from .handlers import (
+    NotebookHandlerMixin,
+    SparkClusterHandlerMixin,
+    AnalyticsJobHandlerMixin,
+    ModelHandlerMixin,
+    DatasetHandlerMixin,
+    InferenceEndpointHandlerMixin,
+)
 
 
-class AnalyticsProvider(ResourceProvider):
+class AnalyticsProvider(
+    NotebookHandlerMixin,
+    SparkClusterHandlerMixin,
+    AnalyticsJobHandlerMixin,
+    ModelHandlerMixin,
+    DatasetHandlerMixin,
+    InferenceEndpointHandlerMixin,
+    ResourceProvider,
+):
     """
     Analytics Resource Provider
 
@@ -31,7 +48,7 @@ class AnalyticsProvider(ResourceProvider):
     - inferenceEndpoints
     """
 
-    def __init__(self, engine: StorageEngine):
+    def __init__(self, engine: SQLAlchemyStorageEngine):
         """
         Initialize Analytics Provider
 
