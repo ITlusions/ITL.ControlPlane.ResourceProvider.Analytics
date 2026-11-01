@@ -12,7 +12,7 @@ from ..models import AnalyticsJobRequest, AnalyticsJobResponse
 logger = get_logger()
 
 
-def setup_jobs_routes(app, engine, provider) -> APIRouter:
+def setup_analytics_jobs_routes(app, engine, provider) -> APIRouter:
     """
     Setup analytics job routes
 
