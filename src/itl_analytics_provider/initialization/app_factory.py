@@ -59,6 +59,11 @@ def create_app(server, engine, provider) -> FastAPI:
     setup_generic_routes(app)
     setup_observability_routes(app, engine)
 
+    @app.get("/health")
+    async def health_check() -> dict[str, str]:
+        """Health check endpoint."""
+        return {"status": "healthy", "service": "itl-analytics-provider"}
+
     # Provider-specific routes
     app.include_router(setup_notebooks_routes(app, engine, provider), prefix="/api/v1")
     app.include_router(setup_spark_clusters_routes(app, engine, provider), prefix="/api/v1")
