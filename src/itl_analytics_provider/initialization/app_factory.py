@@ -11,7 +11,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from itl_controlplane_sdk.persistence.audit import AuditContextMiddleware
-from itl_controlplane_sdk.routes import setup_generic_routes, setup_observability_routes
+from itl_controlplane_sdk.api import setup_generic_routes, setup_observability_routes
 from ..routes import (
     setup_notebooks_routes,
     setup_spark_clusters_routes,
