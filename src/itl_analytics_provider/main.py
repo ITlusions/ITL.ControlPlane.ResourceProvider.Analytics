@@ -28,7 +28,7 @@ def main():
         port = int(os.getenv("PROVIDER_PORT", settings.service_port))
 
         server = AnalyticsProviderServer()
-        server.run(host=host, port=port, log_level="info")
+        server.run(host=host, port=port)
 
     except KeyboardInterrupt:
         logger.info("Received interrupt, shutting down...")
