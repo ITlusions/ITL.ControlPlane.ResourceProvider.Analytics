@@ -10,7 +10,7 @@ Creates and configures the FastAPI application with:
 from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from itl_controlplane_sdk.api.middleware import add_audit_middleware
+from itl_controlplane_sdk.persistence.audit import AuditContextMiddleware
 from itl_controlplane_sdk.routes import setup_generic_routes, setup_observability_routes
 from ..routes import (
     setup_notebooks_routes,
@@ -53,7 +53,7 @@ def create_app(server, engine, provider) -> FastAPI:
     )
 
     # SDK standard middleware
-    add_audit_middleware(app, engine)
+    app.add_middleware(AuditContextMiddleware)
 
     # SDK standard routes
     setup_generic_routes(app)
